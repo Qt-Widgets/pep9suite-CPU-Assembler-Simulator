@@ -24,6 +24,7 @@
 #include <QThreadPool>
 
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include "asmbuildhelper.h"
