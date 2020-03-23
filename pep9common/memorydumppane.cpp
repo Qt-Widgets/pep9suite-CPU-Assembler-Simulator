@@ -37,6 +37,9 @@
 #include <QClipboard>
 #include <QPainter>
 static QString space = "   ";
+// What multiple should the max size be relative to the computed max size?
+// This helps when the memory dump pane has non-monospaced fonts.
+static float maxWidthPadding = 1.5;
 
 MemoryDumpPane::MemoryDumpPane(QWidget *parent) :
     QWidget(parent), ui(new Ui::MemoryDumpPane), data(new QStandardItemModel(this)), lineSize(500), memDevice(nullptr),
@@ -65,6 +68,10 @@ void MemoryDumpPane::init(QSharedPointer<MainMemory> memory, QSharedPointer<ACPU
     delegate = new MemoryDumpDelegate(memDevice, ui->tableView);
     ui->tableView->setItemDelegate(delegate);
     refreshMemoryLines(0, 0);
+
+    computeSizes();
+
+    //ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeMode::ResizeToContents);
 }
 
 void MemoryDumpPane::setNumBytesPerLine(quint16 bytesPerLine)
@@ -79,10 +86,10 @@ void MemoryDumpPane::setNumBytesPerLine(quint16 bytesPerLine)
     if(effective_line_size >= 16) effective_line_size = 16;
     else this->bytesPerLine = (quint16) effective_line_size;
     data->clear();
-    // Insert 1 column for address, 8 for memory bytes, and 1 for character dump
-    data->insertColumns(0, 1+bytesPerLine+1);
+    // Insert 1 column for address, n for memory bytes, and 1 for character dump
+    data->setColumnCount(1+bytesPerLine+1);
     // Insert enough rows to hold 64k of memory
-    data->insertRows(0, (1<<16)/bytesPerLine);
+    data->setRowCount((1<<16)/bytesPerLine);
     // Set the addresses of every row now, as they will not change during execution of the program.
     for(int it = 0; it < (1<<16) /bytesPerLine; it++) {
         data->setData(data->index(it, 0), QString("%1").arg(it*bytesPerLine, 4, 16, QChar('0')).toUpper() + space);
@@ -125,6 +132,7 @@ void MemoryDumpPane::refreshMemory()
     // Since refreshMemoryLines(quint16,quint16) is deffensive, just refresh the maximum
     // number of lines that could ever be had.
     refreshMemoryLines(0, 0xffff);
+    ui->tableView->resizeColumnsToContents();
 }
 
 void MemoryDumpPane::refreshMemoryLines(quint16 firstByte, quint16 lastByte)
@@ -172,7 +180,6 @@ void MemoryDumpPane::refreshMemoryLines(quint16 firstByte, quint16 lastByte)
     }
     lineSize += QFontMetrics(ui->tableView->font()).boundingRect(space).width();
     ui->tableView->setUpdatesEnabled(updates);
-    ui->tableView->resizeColumnsToContents();
 }
 
 void MemoryDumpPane::clearHighlight()
@@ -241,11 +248,11 @@ void MemoryDumpPane::updateMemory()
     modifiedBytes.unite(memDevice->getBytesSet());
     modifiedBytes.unite(memDevice->getBytesWritten());
     lastModifiedBytes = memDevice->getBytesWritten();
-    list = modifiedBytes.toList();
+    list = modifiedBytes.values();
     while(!list.isEmpty()) {
         linesToBeUpdated.insert(list.takeFirst() / bytesPerLine);
     }
-    list = linesToBeUpdated.toList();
+    list = linesToBeUpdated.values();
     std::sort(list.begin(), list.end());
 
     for(auto x: list) {
@@ -253,6 +260,7 @@ void MemoryDumpPane::updateMemory()
         refreshMemoryLines(x * bytesPerLine, x * bytesPerLine);
     }
 
+    ui->tableView->resizeColumnsToContents();
 }
 
 void MemoryDumpPane::scrollToTop()
@@ -317,7 +325,15 @@ void MemoryDumpPane::onFontChanged(QFont font)
     }
     lineSize += QFontMetrics(font).boundingRect(space).width();
     ui->tableView->adjustSize();
-    setMaximumWidth(sizeHint().width());
+    computeSizes();
+    ui->tableView->resizeColumnsToContents();
+}
+
+void MemoryDumpPane::computeSizes()
+{
+    auto size = sizeHint();
+    setMaximumWidth(size.width()*maxWidthPadding);
+    setMinimumWidth(size.width());
 }
 
 void MemoryDumpPane::onDarkModeChanged(bool darkMode)
